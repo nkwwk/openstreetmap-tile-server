@@ -1,0 +1,136 @@
+name: Generate MBTiles
+
+on:
+  workflow_dispatch:
+    inputs:
+      geofabrik_extract_id:
+        description: Geofabrik extract id (e.g. hong-kong)
+        required: false
+        default: hong-kong
+      image_tag:
+        description: GHCR image tag to use (e.g. latest, v1.2.3)
+        required: false
+        default: latest
+      max_zoom:
+        description: Maximum zoom level for export
+        required: false
+        default: "20"
+
+# cancel outdated jobs for the same reference
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE : ghcr.io/${{ github.repository_owner }}/openstreetmap-tile-server
+  TAG   : ${{ github.event.inputs.image_tag || 'latest' }}
+  GEOFABRIK_EXTRACT_ID: ${{ github.event.inputs.geofabrik_extract_id || 'hong-kong' }}
+  EXPORT_MAXZOOM: ${{ github.event.inputs.max_zoom || '20' }}
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    env:
+      MOUNT          : /data/database/
+      MB_DB_VOLUME   : osm-db-mbtiles
+      MB_TILES_VOLUME: osm-tiles-mbtiles
+      MB_CONTAINER   : osm-mbtiles
+    steps:
+    -
+      name: Checkout
+      uses: actions/checkout@v3
+    -
+      name: Environment
+      run : |
+        echo  IMAGE=$(echo ${{ env.IMAGE }} | tr '[:upper:]' '[:lower:]')  >>$GITHUB_ENV
+    -
+      name: Login to GHCR
+      uses: docker/login-action@v2
+      with:
+        registry : ghcr.io
+        username : ${{ github.repository_owner }}
+        password : ${{ secrets.GITHUB_TOKEN }}
+    -
+      name: Pull image
+      run : |
+        docker  pull  ${IMAGE}:${TAG}
+    -
+      name: Resolve Geofabrik extract
+      run : |
+        python3 - <<'PY'
+        import json
+        import os
+        import sys
+        import urllib.request
+
+        extract_id = os.environ.get("GEOFABRIK_EXTRACT_ID", "hong-kong")
+        index_url = "https://download.geofabrik.de/index-v1.json"
+
+        with urllib.request.urlopen(index_url) as response:
+          data = json.load(response)
+
+        match = None
+        for feature in data.get("features", []):
+          props = feature.get("properties", {})
+          if props.get("id") == extract_id:
+            match = props
+            break
+
+        if not match:
+          print(f"::error::Geofabrik extract id '{extract_id}' not found")
+          sys.exit(1)
+
+        urls = match.get("urls", {})
+        pbf_url = urls.get("pbf")
+        poly_url = urls.get("poly")
+
+        if not pbf_url:
+          print(f"::error::No PBF URL for extract id '{extract_id}'")
+          sys.exit(1)
+
+        with open(os.environ["GITHUB_ENV"], "a") as env:
+          env.write(f"GEOFABRIK_PBF_URL={pbf_url}\n")
+          if poly_url:
+            env.write(f"GEOFABRIK_POLY_URL={poly_url}\n")
+        PY
+    -
+      name: Import Geofabrik extract
+      run : |
+        docker  volume  create  ${MB_DB_VOLUME}
+        docker  volume  create  ${MB_TILES_VOLUME}
+        docker  run  --rm  --shm-size=128M  -v ${MB_DB_VOLUME}:${MOUNT}  -v ${MB_TILES_VOLUME}:/data/tiles/ \
+          -e DOWNLOAD_PBF="${GEOFABRIK_PBF_URL}"  -e DOWNLOAD_POLY="${GEOFABRIK_POLY_URL:-}" \
+          ${IMAGE}:${TAG}  import
+    -
+      name: Render Geofabrik tiles
+      run : |
+        docker  run  --shm-size=128M  -v ${MB_DB_VOLUME}:${MOUNT}  -v ${MB_TILES_VOLUME}:/data/tiles/ \
+          -p 8081:80  -d  --name ${MB_CONTAINER}  ${IMAGE}:${TAG}  run
+        sleep 30
+        curl  http://localhost:8081/tile/0/0/0.png  --fail  -o mb-000.png
+        curl  http://localhost:8081/tile/1/0/0.png  --fail  -o mb-100.png
+        curl  http://localhost:8081/tile/1/1/1.png  --fail  -o mb-111.png
+        docker  logs  ${MB_CONTAINER}
+        docker  rm  --force  --volumes  ${MB_CONTAINER}
+    -
+      name: Export MBTiles
+      run : |
+        mkdir -p mbtiles
+        docker  run  --rm  -v ${MB_TILES_VOLUME}:/data/tiles/  -v $PWD/mbtiles:/data/export \
+          -e EXPORT_FILE=export/${GEOFABRIK_EXTRACT_ID}.mbtiles  -e EXPORT_MINZOOM=1  -e EXPORT_MAXZOOM=${EXPORT_MAXZOOM} \
+          ${IMAGE}:${TAG}  export
+        ls -lh mbtiles/*.mbtiles
+    -
+      name: Upload MBTiles
+      uses: actions/upload-artifact@v4
+      with:
+        name: mbtiles-${{ env.GEOFABRIK_EXTRACT_ID }}
+        path: mbtiles/*.mbtiles
+    -
+      name: Cleanup
+      if  : ${{ always() }}
+      run : |
+        docker  rm  --force  --volumes  ${MB_CONTAINER} || true
+        docker  volume  rm  --force  ${MB_DB_VOLUME} || true
+        docker  volume  rm  --force  ${MB_TILES_VOLUME} || true
+        docker  rmi  --force  ${IMAGE}:${TAG} || true
