@@ -13,10 +13,11 @@ function setPostgresPassword() {
 }
 
 if [ "$#" -ne 1 ]; then
-    echo "usage: <import|run>"
+    echo "usage: <import|run|export>"
     echo "commands:"
     echo "    import: Set up the database and import /data/region.osm.pbf"
     echo "    run: Runs Apache and renderd to serve tiles at /tile/{z}/{x}/{y}.png"
+    echo "    export: Export rendered tiles to a .mbtiles file"
     echo "environment variables:"
     echo "    THREADS: defines number of threads used for importing / tile rendering"
     echo "    UPDATES: consecutive updates (enabled/disabled)"
@@ -24,6 +25,9 @@ if [ "$#" -ne 1 ]; then
     echo "    NAME_STYLE: name of the .style to use"
     echo "    NAME_MML: name of the .mml file to render to mapnik.xml"
     echo "    NAME_SQL: name of the .sql file to use"
+    echo "    EXPORT_FILE: output .mbtiles filename (default: tiles.mbtiles)"
+    echo "    EXPORT_MINZOOM: minimum zoom level to export (default: 0)"
+    echo "    EXPORT_MAXZOOM: maximum zoom level to export (default: 20)"
     exit 1
 fi
 
@@ -191,6 +195,45 @@ if [ "$1" == "run" ]; then
     wait "$child"
 
     service postgresql stop
+
+    exit 0
+fi
+
+if [ "$1" == "export" ]; then
+    if [ ! -d /data/tiles/default ] || [ -z "$(ls -A /data/tiles/default 2>/dev/null)" ]; then
+        echo "ERROR: No tiles found in /data/tiles/default/"
+        echo "Render tiles first or mount a tiles volume at /data/tiles."
+        exit 1
+    fi
+
+    EXPORT_FILE=${EXPORT_FILE:-tiles.mbtiles}
+    EXPORT_MINZOOM=${EXPORT_MINZOOM:-0}
+    EXPORT_MAXZOOM=${EXPORT_MAXZOOM:-20}
+
+    if [[ "$EXPORT_FILE" = /* ]]; then
+        EXPORT_PATH="$EXPORT_FILE"
+    else
+        EXPORT_PATH="/data/${EXPORT_FILE}"
+    fi
+
+    OUTPUT_DIR=$(dirname "$EXPORT_PATH")
+    mkdir -p "$OUTPUT_DIR"
+    chown renderer: "$OUTPUT_DIR"
+
+    echo "Exporting tiles from /data/tiles/default/ to ${EXPORT_PATH}"
+    echo "Zoom levels: ${EXPORT_MINZOOM} to ${EXPORT_MAXZOOM}"
+
+    sudo -u renderer mb-util \
+        --scheme=xyz \
+        --image_format=png \
+        --minzoom="${EXPORT_MINZOOM}" \
+        --maxzoom="${EXPORT_MAXZOOM}" \
+        /data/tiles/default \
+        "${EXPORT_PATH}"
+
+    chown renderer: "${EXPORT_PATH}"
+    echo "Successfully exported tiles to ${EXPORT_PATH}"
+    ls -lh "${EXPORT_PATH}"
 
     exit 0
 fi

@@ -119,6 +119,26 @@ docker run \
 
 **If you do this, then make sure to also run the import with the `osm-tiles` volume to make sure that caching works properly across updates!**
 
+### Exporting tiles to MBTiles
+
+To export rendered tiles to an `.mbtiles` file, use the `export` command. This requires that tiles have already been rendered (by running the server or pre-rendering tiles).
+
+```
+docker run \
+    -v osm-tiles:/data/tiles/ \
+    -v $(pwd):/data/export/ \
+    -e EXPORT_FILE=export/tiles.mbtiles \
+    -e EXPORT_MINZOOM=0 \
+    -e EXPORT_MAXZOOM=18 \
+    overv/openstreetmap-tile-server \
+    export
+```
+
+Environment variables:
+- `EXPORT_FILE`: Output filename (default: `tiles.mbtiles`). Relative paths are created under `/data/`.
+- `EXPORT_MINZOOM`: Minimum zoom level to include (default: 0)
+- `EXPORT_MAXZOOM`: Maximum zoom level to include (default: 20)
+
 ### Enabling automatic updating (optional)
 
 Given that you've set up your import as described in the *Automatic updates* section during server setup, you can enable the updating process by setting the `UPDATES` variable while running your server as well:
