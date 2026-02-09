@@ -230,8 +230,10 @@ if [ "$1" == "export" ]; then
     mkdir -p "${EXPORT_TILES_DIR}"
 
     copied=$(python3 - <<'PY'
+import math
 import os
 import shutil
+import struct
 import sys
 
 src_root = "/data/tiles/default"
@@ -239,23 +241,70 @@ dst_root = "/tmp/tiles-export"
 min_zoom = int(os.environ.get("EXPORT_MINZOOM", "0"))
 max_zoom = int(os.environ.get("EXPORT_MAXZOOM", "20"))
 
+def in_range(z):
+    return min_zoom <= z <= max_zoom
+
+def ensure_parent(path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
 count = 0
-for z in range(min_zoom, max_zoom + 1):
-    zdir = os.path.join(src_root, str(z))
-    if not os.path.isdir(zdir):
-        continue
-    for x in os.listdir(zdir):
-        xdir = os.path.join(zdir, x)
-        if not os.path.isdir(xdir):
-            continue
-        for name in os.listdir(xdir):
-            if not name.endswith(".png"):
+
+for root, _, files in os.walk(src_root):
+    for name in files:
+        path = os.path.join(root, name)
+        if name.endswith(".png"):
+            rel = os.path.relpath(path, src_root)
+            parts = rel.split(os.sep)
+            try:
+                z = int(parts[0])
+            except (ValueError, IndexError):
                 continue
-            src = os.path.join(xdir, name)
-            rel = os.path.relpath(src, src_root)
+            if not in_range(z):
+                continue
             dst = os.path.join(dst_root, rel)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
+            ensure_parent(dst)
+            shutil.copy2(path, dst)
+            count += 1
+            continue
+
+        if not name.endswith(".meta"):
+            continue
+
+        with open(path, "rb") as f:
+            header = f.read(20)
+            if len(header) < 20:
+                continue
+            magic, entry_count, x, y, z = struct.unpack("<4siiii", header)
+            if magic not in (b"META", b"METZ"):
+                continue
+            if magic == b"METZ":
+                # Compressed meta tiles are not supported here.
+                continue
+            if entry_count <= 0:
+                continue
+            if not in_range(z):
+                continue
+
+            entry_bytes = f.read(entry_count * 8)
+            if len(entry_bytes) < entry_count * 8:
+                continue
+            f.seek(0)
+            data = f.read()
+
+        meta_size = int(math.sqrt(entry_count))
+        if meta_size * meta_size != entry_count:
+            continue
+
+        for idx in range(entry_count):
+            off, size = struct.unpack_from("<ii", entry_bytes, idx * 8)
+            if size <= 0:
+                continue
+            tx = x + (idx // meta_size)
+            ty = y + (idx % meta_size)
+            dst = os.path.join(dst_root, str(z), str(tx), f"{ty}.png")
+            ensure_parent(dst)
+            with open(dst, "wb") as out:
+                out.write(data[off:off + size])
             count += 1
 
 print(count)
