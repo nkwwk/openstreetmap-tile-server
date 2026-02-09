@@ -97,15 +97,21 @@ jobs:
           -e DOWNLOAD_PBF="${GEOFABRIK_PBF_URL}"  -e DOWNLOAD_POLY="${GEOFABRIK_POLY_URL:-}" \
           ${IMAGE}:${TAG}  import
     -
-      name: Render Geofabrik tiles
+      name: Start renderd
       run : |
         docker  run  --shm-size=128M  -v ${MB_DB_VOLUME}:${MOUNT}  -v ${MB_TILES_VOLUME}:/data/tiles/ \
           -p 8081:80  -d  --name ${MB_CONTAINER}  ${IMAGE}:${TAG}  run
         sleep 30
-        curl  http://localhost:8081/tile/0/0/0.png  --fail  -o mb-000.png
+        docker  logs  ${MB_CONTAINER}
+    -
+      name: Pre-render tiles
+      run : |
+        docker  exec  ${MB_CONTAINER}  render_list  -a  -m default  -z 1  -Z 20
+    -
+      name: Smoke test tiles
+      run : |
         curl  http://localhost:8081/tile/1/0/0.png  --fail  -o mb-100.png
         curl  http://localhost:8081/tile/1/1/1.png  --fail  -o mb-111.png
-        docker  logs  ${MB_CONTAINER}
         docker  rm  --force  --volumes  ${MB_CONTAINER}
     -
       name: Export MBTiles
