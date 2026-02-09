@@ -2,10 +2,11 @@ name: Build and test image
 
 on:
   push:
-    branches:
-    - master
     tags:
     - 'v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    branches:
+    - master
 
 # cancel outdated jobs for the same reference
 concurrency:
