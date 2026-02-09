@@ -11,10 +11,6 @@ on:
         description: GHCR image tag to use (e.g. latest, v1.2.3)
         required: false
         default: latest
-      max_zoom:
-        description: Maximum zoom level for export
-        required: false
-        default: "20"
 
 # cancel outdated jobs for the same reference
 concurrency:
@@ -25,7 +21,6 @@ env:
   IMAGE : ghcr.io/${{ github.repository_owner }}/openstreetmap-tile-server
   TAG   : ${{ github.event.inputs.image_tag || 'latest' }}
   GEOFABRIK_EXTRACT_ID: ${{ github.event.inputs.geofabrik_extract_id || 'hong-kong' }}
-  EXPORT_MAXZOOM: ${{ github.event.inputs.max_zoom || '20' }}
 
 jobs:
   generate:
@@ -117,7 +112,7 @@ jobs:
       run : |
         mkdir -p mbtiles
         docker  run  --rm  -v ${MB_TILES_VOLUME}:/data/tiles/  -v $PWD/mbtiles:/data/export \
-          -e EXPORT_FILE=export/${GEOFABRIK_EXTRACT_ID}.mbtiles  -e EXPORT_MINZOOM=1  -e EXPORT_MAXZOOM=${EXPORT_MAXZOOM} \
+          -e EXPORT_FILE=export/${GEOFABRIK_EXTRACT_ID}.mbtiles  -e EXPORT_MINZOOM=1  -e EXPORT_MAXZOOM=20 \
           ${IMAGE}:${TAG}  export
         ls -lh mbtiles/*.mbtiles
     -

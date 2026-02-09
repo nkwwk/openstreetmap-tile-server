@@ -220,15 +220,35 @@ if [ "$1" == "export" ]; then
     mkdir -p "$OUTPUT_DIR"
     chown renderer: "$OUTPUT_DIR"
 
-    echo "Exporting tiles from /data/tiles/default/ to ${EXPORT_PATH}"
+    if [ "${EXPORT_MINZOOM}" -gt "${EXPORT_MAXZOOM}" ]; then
+        echo "ERROR: EXPORT_MINZOOM must be <= EXPORT_MAXZOOM"
+        exit 1
+    fi
+
+    EXPORT_TILES_DIR="/tmp/tiles-export"
+    rm -rf "${EXPORT_TILES_DIR}"
+    mkdir -p "${EXPORT_TILES_DIR}"
+
+    copied=0
+    for z in $(seq "${EXPORT_MINZOOM}" "${EXPORT_MAXZOOM}"); do
+        if [ -d "/data/tiles/default/${z}" ]; then
+            cp -a "/data/tiles/default/${z}" "${EXPORT_TILES_DIR}/"
+            copied=1
+        fi
+    done
+
+    if [ "${copied}" -eq 0 ]; then
+        echo "ERROR: No tiles found in zoom range ${EXPORT_MINZOOM}-${EXPORT_MAXZOOM}"
+        exit 1
+    fi
+
+    echo "Exporting tiles from ${EXPORT_TILES_DIR} to ${EXPORT_PATH}"
     echo "Zoom levels: ${EXPORT_MINZOOM} to ${EXPORT_MAXZOOM}"
 
     sudo -u renderer mb-util \
         --scheme=xyz \
         --image_format=png \
-        --minzoom="${EXPORT_MINZOOM}" \
-        --maxzoom="${EXPORT_MAXZOOM}" \
-        /data/tiles/default \
+        "${EXPORT_TILES_DIR}" \
         "${EXPORT_PATH}"
 
     chown renderer: "${EXPORT_PATH}"
