@@ -229,18 +229,43 @@ if [ "$1" == "export" ]; then
     rm -rf "${EXPORT_TILES_DIR}"
     mkdir -p "${EXPORT_TILES_DIR}"
 
-    copied=0
-    for z in $(seq "${EXPORT_MINZOOM}" "${EXPORT_MAXZOOM}"); do
-        if [ -d "/data/tiles/default/${z}" ]; then
-            cp -a "/data/tiles/default/${z}" "${EXPORT_TILES_DIR}/"
-            copied=1
-        fi
-    done
+    copied=$(python3 - <<'PY'
+import os
+import shutil
+import sys
 
-    if [ "${copied}" -eq 0 ]; then
-        echo "ERROR: No tiles found in zoom range ${EXPORT_MINZOOM}-${EXPORT_MAXZOOM}"
-        exit 1
-    fi
+src_root = "/data/tiles/default"
+dst_root = "/tmp/tiles-export"
+min_zoom = int(os.environ.get("EXPORT_MINZOOM", "0"))
+max_zoom = int(os.environ.get("EXPORT_MAXZOOM", "20"))
+
+count = 0
+for z in range(min_zoom, max_zoom + 1):
+    zdir = os.path.join(src_root, str(z))
+    if not os.path.isdir(zdir):
+        continue
+    for x in os.listdir(zdir):
+        xdir = os.path.join(zdir, x)
+        if not os.path.isdir(xdir):
+            continue
+        for name in os.listdir(xdir):
+            if not name.endswith(".png"):
+                continue
+            src = os.path.join(xdir, name)
+            rel = os.path.relpath(src, src_root)
+            dst = os.path.join(dst_root, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+            count += 1
+
+print(count)
+PY
+)
+
+if [ "${copied}" -eq 0 ]; then
+    echo "ERROR: No tiles found in zoom range ${EXPORT_MINZOOM}-${EXPORT_MAXZOOM}"
+    exit 1
+fi
 
     echo "Exporting tiles from ${EXPORT_TILES_DIR} to ${EXPORT_PATH}"
     echo "Zoom levels: ${EXPORT_MINZOOM} to ${EXPORT_MAXZOOM}"
