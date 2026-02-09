@@ -106,7 +106,7 @@ jobs:
     -
       name: Pre-render tiles
       run : |
-        docker  exec  ${MB_CONTAINER}  render_list  -a  -m default  -z 1  -Z 20
+        docker  exec  ${MB_CONTAINER}  render_list  -a  -m ajt  -z 1  -Z 20
     -
       name: Smoke test tiles
       run : |
