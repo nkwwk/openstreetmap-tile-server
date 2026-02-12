@@ -126,9 +126,9 @@ jobs:
       name: Pre-render tiles
       run : |
         if [ -n "${GEOFABRIK_MINLON}" ] && [ -n "${GEOFABRIK_MAXLON}" ] && [ -n "${GEOFABRIK_MINLAT}" ] && [ -n "${GEOFABRIK_MAXLAT}" ]; then
-          docker  exec  ${MB_CONTAINER}  render_list  -m default  -z 1  -Z 20  -x "${GEOFABRIK_MINLON}"  -X "${GEOFABRIK_MAXLON}"  -y "${GEOFABRIK_MINLAT}"  -Y "${GEOFABRIK_MAXLAT}"
+          docker  exec  ${MB_CONTAINER}  render_list  -m default  -z 0  -Z 20  -x "${GEOFABRIK_MINLON}"  -X "${GEOFABRIK_MAXLON}"  -y "${GEOFABRIK_MINLAT}"  -Y "${GEOFABRIK_MAXLAT}"
         else
-          docker  exec  ${MB_CONTAINER}  render_list  -a  -m default  -z 1  -Z 20
+          docker  exec  ${MB_CONTAINER}  render_list  -a  -m default  -z 0  -Z 20
         fi
     -
       name: Smoke test tiles
