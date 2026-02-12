@@ -39,13 +39,6 @@ jobs:
       run : |
         echo  IMAGE=$(echo ${{ env.IMAGE }} | tr '[:upper:]' '[:lower:]')  >>$GITHUB_ENV
     -
-      name: Login to GHCR
-      uses: docker/login-action@v2
-      with:
-        registry : ghcr.io
-        username : ${{ github.repository_owner }}
-        password : ${{ secrets.GITHUB_TOKEN }}
-    -
       name: Pull image
       run : |
         docker  pull  ${IMAGE}:${TAG}
@@ -58,6 +51,24 @@ jobs:
         import sys
         import urllib.request
 
+        def bbox_from_geometry(geom):
+          """Return (min_lon, min_lat, max_lon, max_lat) from GeoJSON geometry."""
+          coords = geom.get("coordinates", [])
+
+          def flatten(coords):
+            if not coords:
+              return []
+            if isinstance(coords[0], (int, float)):
+              return [coords]
+            return [c for part in coords for c in flatten(part)]
+
+          points = flatten(coords)
+          if not points:
+            return None
+          lons = [p[0] for p in points]
+          lats = [p[1] for p in points]
+          return (min(lons), min(lats), max(lons), max(lats))
+
         extract_id = os.environ.get("GEOFABRIK_EXTRACT_ID", "hong-kong")
         index_url = "https://download.geofabrik.de/index-v1.json"
 
@@ -65,10 +76,11 @@ jobs:
           data = json.load(response)
 
         match = None
-        for feature in data.get("features", []):
-          props = feature.get("properties", {})
-          if props.get("id") == extract_id:
-            match = props
+        feature = None
+        for f in data.get("features", []):
+          if f.get("properties", {}).get("id") == extract_id:
+            match = f.get("properties", {})
+            feature = f
             break
 
         if not match:
@@ -87,6 +99,13 @@ jobs:
           env.write(f"GEOFABRIK_PBF_URL={pbf_url}\n")
           if poly_url:
             env.write(f"GEOFABRIK_POLY_URL={poly_url}\n")
+          if feature and feature.get("geometry"):
+            b = bbox_from_geometry(feature["geometry"])
+            if b:
+              env.write(f"GEOFABRIK_MINLON={b[0]}\n")
+              env.write(f"GEOFABRIK_MINLAT={b[1]}\n")
+              env.write(f"GEOFABRIK_MAXLON={b[2]}\n")
+              env.write(f"GEOFABRIK_MAXLAT={b[3]}\n")
         PY
     -
       name: Import Geofabrik extract
@@ -106,7 +125,11 @@ jobs:
     -
       name: Pre-render tiles
       run : |
-        docker  exec  ${MB_CONTAINER}  render_list  -a  -m ajt  -z 16  -Z 17
+        if [ -n "${GEOFABRIK_MINLON}" ] && [ -n "${GEOFABRIK_MAXLON}" ] && [ -n "${GEOFABRIK_MINLAT}" ] && [ -n "${GEOFABRIK_MAXLAT}" ]; then
+          docker  exec  ${MB_CONTAINER}  render_list  -m ajt  -z 16  -Z 17  -x "${GEOFABRIK_MINLON}"  -X "${GEOFABRIK_MAXLON}"  -y "${GEOFABRIK_MINLAT}"  -Y "${GEOFABRIK_MAXLAT}"
+        else
+          docker  exec  ${MB_CONTAINER}  render_list  -a  -m ajt  -z 16  -Z 17
+        fi
     -
       name: Smoke test tiles
       run : |
